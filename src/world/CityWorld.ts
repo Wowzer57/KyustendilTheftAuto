@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { CityData, SpawnPoint, Vec2 } from '../types'
+import { createLandmarkLabel } from './labels'
 
 export interface Collider {
   minX: number
@@ -158,28 +159,89 @@ export class CityWorld {
   }
 
   private buildRoads() {
-    const asphalt = new THREE.MeshStandardMaterial({
-      color: 0x4a4a4a,
-      roughness: 0.9,
+    const majorMat = new THREE.MeshStandardMaterial({
+      color: 0x5a5a5a,
+      roughness: 0.88,
+    })
+    const streetMat = new THREE.MeshStandardMaterial({
+      color: 0x3f3f3f,
+      roughness: 0.92,
+    })
+    const alleyMat = new THREE.MeshStandardMaterial({
+      color: 0x333333,
+      roughness: 0.95,
     })
     const pedestrian = new THREE.MeshStandardMaterial({
-      color: 0xb5a789,
+      color: 0xc4b396,
       roughness: 0.95,
+    })
+    const centerLine = new THREE.MeshStandardMaterial({
+      color: 0xd4a017,
+      roughness: 0.7,
+      emissive: 0xd4a017,
+      emissiveIntensity: 0.15,
     })
 
     for (const road of this.city.roads) {
-      const geo = roadRibbon(road.path, road.width)
-      if (!geo) continue
       const isPed =
         road.kind === 'pedestrian' ||
         road.kind === 'footway' ||
         road.kind === 'path' ||
         road.kind === 'living_street'
-      const mesh = new THREE.Mesh(geo, isPed ? pedestrian : asphalt)
-      mesh.position.y = 0.02
+      const isMajor =
+        road.kind === 'primary' ||
+        road.kind === 'trunk' ||
+        road.kind === 'secondary'
+      const isTertiary = road.kind === 'tertiary'
+      const widthMul = isMajor ? 1.25 : isTertiary ? 1.1 : isPed ? 1.05 : 0.95
+      const geo = roadRibbon(road.path, road.width * widthMul)
+      if (!geo) continue
+      const mat = isPed
+        ? pedestrian
+        : isMajor || isTertiary
+          ? majorMat
+          : road.kind === 'service'
+            ? alleyMat
+            : streetMat
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.y = isMajor ? 0.035 : 0.02
       mesh.receiveShadow = true
       this.group.add(mesh)
+
+      // Thin center stripe on major roads for instant orientation
+      if (isMajor && road.path.length >= 2) {
+        const stripe = roadRibbon(road.path, Math.max(0.35, road.width * 0.08))
+        if (stripe) {
+          const line = new THREE.Mesh(stripe, centerLine)
+          line.position.y = 0.05
+          this.group.add(line)
+        }
+      }
     }
+  }
+
+  private nearestSpawn(x: number, z: number): SpawnPoint | null {
+    let best: SpawnPoint | null = null
+    let bestD = Infinity
+    for (const s of this.spawns) {
+      const d = Math.hypot(s.x - x, s.z - z)
+      if (d < bestD) {
+        bestD = d
+        best = s
+      }
+    }
+    return best
+  }
+
+  private footprintCentroid(ring: Vec2[]): [number, number] {
+    let x = 0
+    let z = 0
+    const n = Math.max(ring.length - 1, 1)
+    for (let i = 0; i < n; i++) {
+      x += ring[i][0]
+      z += ring[i][1]
+    }
+    return [x / n, z / n]
   }
 
   private buildBuildings() {
@@ -187,15 +249,29 @@ export class CityWorld {
     const buckets = new Map<string, BuildingDataBucket>()
 
     for (const b of this.city.buildings) {
-      let bucket = buckets.get(b.color)
+      const [cx, cz] = this.footprintCentroid(b.footprint)
+      const near = this.nearestSpawn(cx, cz)
+      const dist = near ? Math.hypot(near.x - cx, near.z - cz) : Infinity
+      // Landmark-adjacent buildings: taller + tinted so the center reads
+      let height = b.height
+      let color = b.color
+      if (near && dist < 45) {
+        height = Math.max(height * 1.35, height + 3)
+        color = mixHex(b.color, near.color, 0.35)
+      } else if (near && dist < 90) {
+        height = height * 1.12
+        color = mixHex(b.color, near.color, 0.12)
+      }
+
+      let bucket = buckets.get(color)
       if (!bucket) {
-        bucket = { color: b.color, meshes: [] }
-        buckets.set(b.color, bucket)
+        bucket = { color, meshes: [] }
+        buckets.set(color, bucket)
       }
       const shape = shapeFromRing(b.footprint)
       if (!shape) continue
       const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: b.height,
+        depth: height,
         bevelEnabled: false,
       })
       // Shape is in X/Y; extrude goes +Z. Rotate to stand on XZ ground.
@@ -221,7 +297,7 @@ export class CityWorld {
         maxX,
         minZ,
         maxZ,
-        height: b.height,
+        height,
         footprint: b.footprint,
       })
     }
@@ -247,7 +323,7 @@ export class CityWorld {
         emissiveIntensity: 0.25,
         roughness: 0.7,
       })
-      // Flat spawn plate (not a car) + short stem so it reads as a map pin on the ground
+      // Flat spawn plate + stem + floating name label
       const plate = new THREE.Mesh(new THREE.CircleGeometry(1.6, 20), mat)
       plate.rotation.x = -Math.PI / 2
       plate.position.set(spawn.x, 0.05, spawn.z)
@@ -256,8 +332,24 @@ export class CityWorld {
         mat,
       )
       stem.position.set(spawn.x, 1.1, spawn.z)
-      this.group.add(plate, stem)
+      const label = createLandmarkLabel(spawn.name, spawn.color)
+      label.position.set(spawn.x, 5.2, spawn.z)
+      this.group.add(plate, stem, label)
     }
+  }
+
+  /** Nearest landmark name for HUD orientation. */
+  nearestLandmarkName(x: number, z: number, maxDist = 120): string | null {
+    let best: SpawnPoint | null = null
+    let bestD = maxDist
+    for (const s of this.spawns) {
+      const d = Math.hypot(s.x - x, s.z - z)
+      if (d < bestD) {
+        bestD = d
+        best = s
+      }
+    }
+    return best?.name ?? null
   }
 
   resolveCollision(
@@ -396,4 +488,19 @@ function pushCircleFromPolygon(
 interface BuildingDataBucket {
   color: string
   meshes: THREE.Mesh[]
+}
+
+function mixHex(a: string, b: string, t: number): string {
+  const pa = parseInt(a.replace('#', ''), 16)
+  const pb = parseInt(b.replace('#', ''), 16)
+  const ar = (pa >> 16) & 0xff
+  const ag = (pa >> 8) & 0xff
+  const ab = pa & 0xff
+  const br = (pb >> 16) & 0xff
+  const bg = (pb >> 8) & 0xff
+  const bb = pb & 0xff
+  const r = Math.round(ar + (br - ar) * t)
+  const g = Math.round(ag + (bg - ag) * t)
+  const bl = Math.round(ab + (bb - ab) * t)
+  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`
 }

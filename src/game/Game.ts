@@ -3,6 +3,7 @@ import type { CityData, GameMode, SpawnPoint } from '../types'
 import { CityWorld } from '../world/CityWorld'
 import { WalkController } from '../player/WalkController'
 import { Car, carRight } from '../vehicle/Car'
+import { Minimap } from '../ui/Minimap'
 
 export type PauseAction = 'resume' | 'map' | 'menu'
 
@@ -22,6 +23,8 @@ export class Game {
   private readonly camOffset = new THREE.Vector3(0, 3.4, 8.2)
   private readonly lookTarget = new THREE.Vector3()
   private carInputDispose: (() => void) | null = null
+  private minimap: Minimap
+  private lastLocName = ''
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -34,6 +37,7 @@ export class Game {
       setPaused: (paused: boolean) => void
     },
     private readonly onLeave: (action: 'map' | 'menu') => void,
+    minimapCanvas: HTMLCanvasElement,
   ) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -74,6 +78,7 @@ export class Game {
     this.driveCam.aspect = window.innerWidth / window.innerHeight
     this.driveCam.updateProjectionMatrix()
 
+    this.minimap = new Minimap(minimapCanvas, city)
     this.spawnCarsNearSpawns(city.spawns)
 
     const onResize = () => this.resize()
@@ -233,6 +238,39 @@ export class Game {
     this.walker.camera.updateProjectionMatrix()
     this.driveCam.aspect = w / h
     this.driveCam.updateProjectionMatrix()
+    this.minimap.resize()
+  }
+
+  private playerPose(): { x: number; z: number; yaw: number } {
+    if (this.mode === 'drive' && this.activeCar) {
+      return {
+        x: this.activeCar.position.x,
+        z: this.activeCar.position.z,
+        yaw: this.activeCar.yawAngle,
+      }
+    }
+    return {
+      x: this.walker.position.x,
+      z: this.walker.position.z,
+      yaw: this.walker.yawAngle,
+    }
+  }
+
+  private updateOrientationHud() {
+    const pose = this.playerPose()
+    const name = this.world.nearestLandmarkName(pose.x, pose.z) ?? 'Kyustendil center'
+    if (name !== this.lastLocName) {
+      this.lastLocName = name
+      this.hud.setLocation(name)
+    }
+    const carPoses = this.cars
+      .filter((c) => c !== this.activeCar)
+      .map((c) => ({
+        x: c.position.x,
+        z: c.position.z,
+        yaw: c.yawAngle,
+      }))
+    this.minimap.draw(pose, carPoses)
   }
 
   private updatePrompt() {
@@ -277,6 +315,10 @@ export class Game {
         this.hud.setSpeed(this.activeCar.speedKmh)
       }
       this.updatePrompt()
+      this.updateOrientationHud()
+    } else {
+      // Keep minimap/camera frozen but still paint last frame orientation once
+      this.updateOrientationHud()
     }
 
     if (this.mode === 'walk') {

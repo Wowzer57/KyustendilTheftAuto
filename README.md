@@ -29,6 +29,8 @@ Open the local URL Vite prints (usually `http://localhost:5173`).
 | E | Enter / exit nearest car |
 | Esc | Pause (Resume / Back to map / Main menu) |
 
+While playing, a **minimap** (bottom-left) shows nearby streets, landmark dots, and your facing direction. Floating labels mark Velbazhd Square, Bulgaria Blvd, and other spawn landmarks.
+
 ## Refresh city data
 
 Re-bake OSM for the center bbox:

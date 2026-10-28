@@ -29,6 +29,9 @@ app.innerHTML = `
       <div class="hud-panel">Mode: <strong id="hud-mode">Walk</strong></div>
       <div class="hud-panel">Near: <strong id="hud-loc">—</strong></div>
     </div>
+    <div class="minimap-wrap">
+      <canvas id="minimap" aria-label="Minimap"></canvas>
+    </div>
     <div class="crosshair" id="crosshair"></div>
     <div class="prompt" id="prompt"></div>
     <div class="speedo" id="speedo">0 <span style="font-size:1rem">km/h</span></div>
@@ -75,6 +78,7 @@ const hudLoc = app.querySelector<HTMLElement>('#hud-loc')!
 const promptEl = app.querySelector<HTMLElement>('#prompt')!
 const speedo = app.querySelector<HTMLElement>('#speedo')!
 const crosshair = app.querySelector<HTMLElement>('#crosshair')!
+const minimapCanvas = app.querySelector<HTMLCanvasElement>('#minimap')!
 
 let city: CityData | null = null
 let mapSelect: MapSelect | null = null
@@ -171,6 +175,7 @@ function startGame(spawn: SpawnPoint) {
       if (action === 'map') openMapSelect()
       else show(mainMenu)
     },
+    minimapCanvas,
   )
   game.startAt(spawn)
 }
