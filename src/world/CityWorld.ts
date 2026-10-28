@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import type { CityData, SpawnPoint, Vec2 } from '../types'
 import { createLandmarkLabel } from './labels'
 import {
-  applyBuildingUVs,
   facadeMaterial,
   getPavementTexture,
   getPlazaMosaicTexture,
@@ -18,6 +17,7 @@ import {
   createObshtinaBuilding,
   orientObshtinaToFootprint,
 } from './landmarks/ObshtinaBuilding'
+import { BuildingWindowBatch, footprintArea } from './BuildingWindows'
 
 export interface Collider {
   minX: number
@@ -369,8 +369,8 @@ export class CityWorld {
 
   private buildBuildings() {
     const landmarks = resolveLandmarkBuildings(this.city.buildings)
-    // Shared buckets for non-landmark buildings (key: style|color)
     const buckets = new Map<string, BuildingDataBucket>()
+    const windows = new BuildingWindowBatch()
 
     this.city.buildings.forEach((b, index) => {
       const [cx, cz] = footprintCentroid(b.footprint)
@@ -409,11 +409,9 @@ export class CityWorld {
         minZ = Math.min(minZ, z)
         maxZ = Math.max(maxZ, z)
       }
-      const fw = Math.max(1, maxX - minX)
-      const fd = Math.max(1, maxZ - minZ)
       const levels = Math.max(1, b.levels || Math.round(height / 3.2))
 
-      // Custom low-poly Obshtina — skip generic extrude
+      // Custom low-poly Obshtina — has its own mesh windows
       if (lm?.id === 'municipality') {
         const obsH = 16
         this.colliders.push({
@@ -439,7 +437,6 @@ export class CityWorld {
         bevelEnabled: false,
       })
       geo.rotateX(-Math.PI / 2)
-      applyBuildingUVs(geo, fw, fd, height, levels)
 
       const mesh = new THREE.Mesh(geo)
       mesh.castShadow = true
@@ -465,7 +462,17 @@ export class CityWorld {
         footprint: b.footprint,
       })
 
-      // Other landmarks get unique materials + signs
+      // Town-hall-style mesh windows (batched), not facade textures
+      windows.addBuilding({
+        minX,
+        maxX,
+        minZ,
+        maxZ,
+        height,
+        levels,
+        area: footprintArea(minX, maxX, minZ, maxZ),
+      })
+
       if (lm) {
         const wallMat = facadeMaterial(color, style)
         const roofMat = roofMaterial(color)
@@ -504,6 +511,8 @@ export class CityWorld {
         this.group.add(roof)
       }
     }
+
+    windows.build(this.group)
   }
 
   private addLandmarkMarkers() {
