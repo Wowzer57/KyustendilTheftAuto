@@ -23,10 +23,10 @@ export interface LandmarkOverride {
 export const SQUARE_LANDMARKS: LandmarkOverride[] = [
   {
     id: 'municipality',
-    sign: 'ОБЩИНА',
-    signColor: '#c45c26',
+    sign: 'ОБЩИНА КЮСТЕНДИЛ',
+    signColor: '#d4a017',
     style: 'civic',
-    color: '#d8d2c4',
+    color: '#c43c36',
     heightMul: 1.55,
     nameIncludes: ['община кюстендил', 'община'],
   },

@@ -14,6 +14,10 @@ import {
   isOnSquareRing,
   resolveLandmarkBuildings,
 } from './landmarkOverrides'
+import {
+  createObshtinaBuilding,
+  yawToward,
+} from './landmarks/ObshtinaBuilding'
 
 export interface Collider {
   minX: number
@@ -409,6 +413,27 @@ export class CityWorld {
       const fd = Math.max(1, maxZ - minZ)
       const levels = Math.max(1, b.levels || Math.round(height / 3.2))
 
+      // Custom low-poly Obshtina — skip generic extrude
+      if (lm?.id === 'municipality') {
+        const obsH = 16
+        this.colliders.push({
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+          height: obsH,
+          footprint: b.footprint,
+        })
+        const buildingW = Math.min(52, Math.max(38, Math.max(fw, fd) * 0.78))
+        const buildingD = Math.min(20, Math.max(14, Math.min(fw, fd) * 0.42))
+        const obshtina = createObshtinaBuilding(buildingW, buildingD)
+        obshtina.position.set(cx, 0, cz)
+        // Face the Velbazhd plaza center
+        obshtina.rotation.y = yawToward(cx, cz, -210, 295)
+        this.group.add(obshtina)
+        return
+      }
+
       const shape = shapeFromRing(b.footprint)
       if (!shape) return
       const geo = new THREE.ExtrudeGeometry(shape, {
@@ -442,7 +467,7 @@ export class CityWorld {
         footprint: b.footprint,
       })
 
-      // Landmarks get unique materials + signs (not bucket-shared)
+      // Other landmarks get unique materials + signs
       if (lm) {
         const wallMat = facadeMaterial(color, style)
         const roofMat = roofMaterial(color)
