@@ -17,7 +17,14 @@ import {
   createObshtinaBuilding,
   orientObshtinaToFootprint,
 } from './landmarks/ObshtinaBuilding'
+import { createPostOfficeBuilding } from './landmarks/PostOfficeBuilding'
+import { createGalleryBuilding } from './landmarks/GalleryBuilding'
+import { createCafeBuilding } from './landmarks/CafeBuilding'
+import { orientBuildingToFootprint } from './landmarks/buildingUtils'
 import { BuildingWindowBatch, footprintArea } from './BuildingWindows'
+
+/** Plaza centroid — custom landmarks face this. */
+const PLAZA = { x: -210, z: 295 } as const
 
 export interface Collider {
   minX: number
@@ -411,7 +418,7 @@ export class CityWorld {
       }
       const levels = Math.max(1, b.levels || Math.round(height / 3.2))
 
-      // Custom low-poly Obshtina — has its own mesh windows
+      // Custom low-poly square landmarks — own mesh windows, face plaza
       if (lm?.id === 'municipality') {
         const obsH = 16
         this.colliders.push({
@@ -422,11 +429,80 @@ export class CityWorld {
           height: obsH,
           footprint: b.footprint,
         })
-        const orient = orientObshtinaToFootprint(b.footprint, -210, 295)
+        const orient = orientObshtinaToFootprint(b.footprint, PLAZA.x, PLAZA.z)
         const obshtina = createObshtinaBuilding(orient.width, orient.depth)
         obshtina.position.set(orient.cx, 0, orient.cz)
         obshtina.rotation.y = orient.yaw
         this.group.add(obshtina)
+        return
+      }
+
+      if (lm?.id === 'post') {
+        const h = 13
+        this.colliders.push({
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+          height: h,
+          footprint: b.footprint,
+        })
+        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
+          minW: 24,
+          maxW: 52,
+          minD: 12,
+          maxD: 26,
+        })
+        const post = createPostOfficeBuilding(orient.width, orient.depth)
+        post.position.set(orient.cx, 0, orient.cz)
+        post.rotation.y = orient.yaw
+        this.group.add(post)
+        return
+      }
+
+      if (lm?.id === 'gallery') {
+        const h = 12
+        this.colliders.push({
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+          height: h,
+          footprint: b.footprint,
+        })
+        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
+          minW: 28,
+          maxW: 56,
+          minD: 14,
+          maxD: 28,
+        })
+        const gallery = createGalleryBuilding(orient.width, orient.depth)
+        gallery.position.set(orient.cx, 0, orient.cz)
+        gallery.rotation.y = orient.yaw
+        this.group.add(gallery)
+        return
+      }
+
+      if (lm?.id === 'slunchevata') {
+        const h = 9
+        this.colliders.push({
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+          height: h,
+          footprint: b.footprint,
+        })
+        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
+          minW: 10,
+          maxW: 24,
+          minD: 8,
+          maxD: 16,
+        })
+        const cafe = createCafeBuilding(orient.width, orient.depth)
+        cafe.position.set(orient.cx, 0, orient.cz)
+        cafe.rotation.y = orient.yaw
+        this.group.add(cafe)
         return
       }
 

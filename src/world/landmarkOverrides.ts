@@ -55,8 +55,8 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'cafe',
     color: '#c4a484',
     heightMul: 1.05,
-    // Cafe on square / Отец Паисий edge — near plaza west-south
-    near: { x: -240, z: 280, maxDist: 55 },
+    // Modest storefront west of Velbazhd plaza (~ -298, 340)
+    near: { x: -298, z: 340, maxDist: 40 },
   },
   {
     id: 'a1',
@@ -65,7 +65,8 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'a1',
     color: '#e8eef2',
     heightMul: 1.05,
-    near: { x: -185, z: 310, maxDist: 50 },
+    // North-east of plaza ring
+    near: { x: -181, z: 375, maxDist: 35 },
   },
   {
     id: 'malkiyat-princ',
@@ -74,7 +75,8 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'shop',
     color: '#d4b896',
     heightMul: 1.05,
-    near: { x: -230, z: 250, maxDist: 55 },
+    // Near post / south-west approach to square
+    near: { x: -280, z: 192, maxDist: 40 },
   },
 ]
 
