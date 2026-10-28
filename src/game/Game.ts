@@ -2,7 +2,9 @@ import * as THREE from 'three'
 import type { CityData, GameMode, SpawnPoint } from '../types'
 import { CityWorld } from '../world/CityWorld'
 import { WalkController } from '../player/WalkController'
-import { Car } from '../vehicle/Car'
+import { Car, carRight } from '../vehicle/Car'
+
+export type PauseAction = 'resume' | 'map' | 'menu'
 
 export class Game {
   private renderer: THREE.WebGLRenderer
@@ -13,11 +15,13 @@ export class Game {
   private activeCar: Car | null = null
   private mode: GameMode = 'walk'
   private running = false
+  private paused = false
   private last = 0
   private disposeFns: Array<() => void> = []
   private driveCam = new THREE.PerspectiveCamera(70, 1, 0.1, 1200)
   private readonly camOffset = new THREE.Vector3(0, 3.4, 8.2)
   private readonly lookTarget = new THREE.Vector3()
+  private carInputDispose: (() => void) | null = null
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -27,7 +31,9 @@ export class Game {
       setPrompt: (text: string | null) => void
       setSpeed: (kmh: number | null) => void
       setLocation: (name: string) => void
+      setPaused: (paused: boolean) => void
     },
+    private readonly onLeave: (action: 'map' | 'menu') => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -77,10 +83,13 @@ export class Game {
     this.disposeFns.push(this.walker.attachInput(canvas))
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'KeyE') this.tryEnterExit()
       if (e.code === 'Escape') {
-        this.walker.exitPointerLock()
+        e.preventDefault()
+        this.togglePause()
+        return
       }
+      if (this.paused) return
+      if (e.code === 'KeyE') this.tryEnterExit()
     }
     window.addEventListener('keydown', onKey)
     this.disposeFns.push(() => window.removeEventListener('keydown', onKey))
@@ -124,10 +133,14 @@ export class Game {
     this.placeCar(spawn.x + 4.5, spawn.z + 3, Math.PI / 2, 0xf4a261)
     this.hud.setLocation(spawn.name)
     this.setMode('walk')
+    this.paused = false
+    this.hud.setPaused(false)
     this.running = true
     this.last = performance.now()
     this.loop(this.last)
-    setTimeout(() => this.canvas.requestPointerLock(), 250)
+    setTimeout(() => {
+      if (!this.paused) this.canvas.requestPointerLock()
+    }, 250)
   }
 
   private setMode(mode: GameMode) {
@@ -135,9 +148,6 @@ export class Game {
     this.hud.setMode(mode)
     if (mode === 'walk') {
       this.hud.setSpeed(null)
-      if (this.activeCar) {
-        // detach car input kept via dispose list when entered
-      }
     }
   }
 
@@ -155,8 +165,6 @@ export class Game {
     return best
   }
 
-  private carInputDispose: (() => void) | null = null
-
   private tryEnterExit() {
     if (this.mode === 'walk') {
       const car = this.nearestCar()
@@ -170,8 +178,9 @@ export class Game {
       this.hud.setPrompt(null)
     } else if (this.activeCar) {
       const car = this.activeCar
-      const exitX = car.position.x + Math.cos(car.yawAngle) * 2.8
-      const exitZ = car.position.z + Math.sin(car.yawAngle) * 2.8
+      const right = carRight(car.yawAngle)
+      const exitX = car.position.x + right.x * 2.8
+      const exitZ = car.position.z + right.z * 2.8
       this.carInputDispose?.()
       this.carInputDispose = null
       car.speed = 0
@@ -181,6 +190,39 @@ export class Game {
       this.setMode('walk')
       this.canvas.requestPointerLock()
     }
+  }
+
+  togglePause() {
+    if (!this.running) return
+    if (this.paused) this.resume()
+    else this.pause()
+  }
+
+  pause() {
+    if (this.paused) return
+    this.paused = true
+    this.walker.exitPointerLock()
+    this.hud.setPaused(true)
+    this.hud.setPrompt(null)
+  }
+
+  resume() {
+    if (!this.paused) return
+    this.paused = false
+    this.hud.setPaused(false)
+    this.last = performance.now()
+    if (this.mode === 'walk') {
+      this.canvas.requestPointerLock()
+    }
+  }
+
+  handlePauseAction(action: PauseAction) {
+    if (action === 'resume') {
+      this.resume()
+      return
+    }
+    this.stop()
+    this.onLeave(action)
   }
 
   private resize() {
@@ -194,6 +236,10 @@ export class Game {
   }
 
   private updatePrompt() {
+    if (this.paused) {
+      this.hud.setPrompt(null)
+      return
+    }
     if (this.mode === 'walk') {
       const car = this.nearestCar()
       this.hud.setPrompt(car ? 'Press E to enter vehicle' : null)
@@ -222,24 +268,33 @@ export class Game {
     const dt = Math.min(0.05, (now - this.last) / 1000)
     this.last = now
 
+    if (!this.paused) {
+      if (this.mode === 'walk') {
+        this.walker.update(dt)
+      } else if (this.activeCar) {
+        this.activeCar.update(dt)
+        this.updateDriveCamera()
+        this.hud.setSpeed(this.activeCar.speedKmh)
+      }
+      this.updatePrompt()
+    }
+
     if (this.mode === 'walk') {
-      this.walker.update(dt)
       this.renderer.render(this.scene, this.walker.camera)
-    } else if (this.activeCar) {
-      this.activeCar.update(dt)
-      this.updateDriveCamera()
-      this.hud.setSpeed(this.activeCar.speedKmh)
+    } else {
       this.renderer.render(this.scene, this.driveCam)
     }
 
-    this.updatePrompt()
     requestAnimationFrame(this.loop)
   }
 
   stop() {
     this.running = false
+    this.paused = false
+    this.hud.setPaused(false)
     this.walker.exitPointerLock()
     this.carInputDispose?.()
+    this.carInputDispose = null
     for (const fn of this.disposeFns) fn()
     this.disposeFns = []
     this.renderer.dispose()

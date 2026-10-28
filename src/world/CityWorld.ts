@@ -7,6 +7,8 @@ export interface Collider {
   minZ: number
   maxZ: number
   height: number
+  /** Closed or open ring in world XZ; used after AABB broadphase. */
+  footprint: Vec2[]
 }
 
 function shapeFromRing(ring: Vec2[]): THREE.Shape | null {
@@ -213,15 +215,14 @@ export class CityWorld {
         minZ = Math.min(minZ, z)
         maxZ = Math.max(maxZ, z)
       }
-      // Shrink slightly; keep a valid box on skinny footprints
-      const padX = Math.min(0.35, Math.max(0, (maxX - minX) * 0.15))
-      const padZ = Math.min(0.35, Math.max(0, (maxZ - minZ) * 0.15))
+      // AABB is a loose broadphase; footprint drives the real push-out
       this.colliders.push({
-        minX: minX + padX,
-        maxX: maxX - padX,
-        minZ: minZ + padZ,
-        maxZ: maxZ - padZ,
+        minX,
+        maxX,
+        minZ,
+        maxZ,
         height: b.height,
+        footprint: b.footprint,
       })
     }
 
@@ -266,35 +267,130 @@ export class CityWorld {
   ): { x: number; z: number } {
     let outX = x
     let outZ = z
-    for (const c of this.colliders) {
-      if (c.height < 1.2) continue
-      const nearestX = Math.max(c.minX, Math.min(outX, c.maxX))
-      const nearestZ = Math.max(c.minZ, Math.min(outZ, c.maxZ))
-      const dx = outX - nearestX
-      const dz = outZ - nearestZ
-      const distSq = dx * dx + dz * dz
-      if (distSq >= radius * radius) continue
-
-      if (distSq < 1e-6) {
-        // Center inside AABB — push out via smallest penetration
-        const left = Math.abs(outX - c.minX)
-        const right = Math.abs(c.maxX - outX)
-        const top = Math.abs(outZ - c.minZ)
-        const bottom = Math.abs(c.maxZ - outZ)
-        const m = Math.min(left, right, top, bottom)
-        if (m === left) outX = c.minX - radius
-        else if (m === right) outX = c.maxX + radius
-        else if (m === top) outZ = c.minZ - radius
-        else outZ = c.maxZ + radius
-      } else {
-        const dist = Math.sqrt(distSq)
-        const push = (radius - dist) / dist
-        outX += dx * push
-        outZ += dz * push
+    // A couple passes so overlapping footprints settle cleanly
+    for (let pass = 0; pass < 2; pass++) {
+      for (const c of this.colliders) {
+        if (c.height < 1.2) continue
+        // Broadphase: expanded AABB
+        if (
+          outX + radius < c.minX ||
+          outX - radius > c.maxX ||
+          outZ + radius < c.minZ ||
+          outZ - radius > c.maxZ
+        ) {
+          continue
+        }
+        const pushed = pushCircleFromPolygon(outX, outZ, radius, c.footprint)
+        outX = pushed.x
+        outZ = pushed.z
       }
     }
     return { x: outX, z: outZ }
   }
+}
+
+function pointInPoly(x: number, z: number, ring: Vec2[]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const zi = ring[i][1]
+    const xj = ring[j][0]
+    const zj = ring[j][1]
+    const intersect =
+      zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function closestPointOnSegment(
+  px: number,
+  pz: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): { x: number; z: number; distSq: number } {
+  const abx = bx - ax
+  const abz = bz - az
+  const apx = px - ax
+  const apz = pz - az
+  const abLenSq = abx * abx + abz * abz || 1e-12
+  let t = (apx * abx + apz * abz) / abLenSq
+  t = Math.max(0, Math.min(1, t))
+  const x = ax + abx * t
+  const z = az + abz * t
+  const dx = px - x
+  const dz = pz - z
+  return { x, z, distSq: dx * dx + dz * dz }
+}
+
+/** Push a circle outside a polygon footprint (edges + interior). */
+function pushCircleFromPolygon(
+  x: number,
+  z: number,
+  radius: number,
+  ring: Vec2[],
+): { x: number; z: number } {
+  if (ring.length < 3) return { x, z }
+
+  let bestDistSq = Infinity
+  let bestX = x
+  let bestZ = z
+  const n = ring.length
+  const closed =
+    Math.abs(ring[0][0] - ring[n - 1][0]) < 1e-6 &&
+    Math.abs(ring[0][1] - ring[n - 1][1]) < 1e-6
+  const verts = closed ? ring.slice(0, -1) : ring
+  const count = verts.length
+  if (count < 3) return { x, z }
+
+  for (let i = 0; i < count; i++) {
+    const a = verts[i]
+    const b = verts[(i + 1) % count]
+    const hit = closestPointOnSegment(x, z, a[0], a[1], b[0], b[1])
+    if (hit.distSq < bestDistSq) {
+      bestDistSq = hit.distSq
+      bestX = hit.x
+      bestZ = hit.z
+    }
+  }
+
+  const inside = pointInPoly(x, z, verts)
+  if (!inside && bestDistSq >= radius * radius) {
+    return { x, z }
+  }
+
+  const dx = x - bestX
+  const dz = z - bestZ
+  const dist = Math.sqrt(bestDistSq)
+  if (dist < 1e-8) {
+    // Degenerate: nudge along AABB-ish fallback from polygon centroid
+    let cx = 0
+    let cz = 0
+    for (let i = 0; i < count; i++) {
+      cx += verts[i][0]
+      cz += verts[i][1]
+    }
+    cx /= count
+    cz /= count
+    let nx = x - cx
+    let nz = z - cz
+    const nlen = Math.hypot(nx, nz) || 1
+    nx /= nlen
+    nz /= nlen
+    return { x: bestX + nx * radius, z: bestZ + nz * radius }
+  }
+
+  const nx = dx / dist
+  const nz = dz / dist
+  // Inside: dx points inward from the edge → push the opposite way (outward)
+  if (inside) {
+    return { x: bestX - nx * radius, z: bestZ - nz * radius }
+  }
+  // Outside but overlapping the circle: push away from the edge
+  const push = radius - dist
+  return { x: x + nx * push, z: z + nz * push }
 }
 
 interface BuildingDataBucket {

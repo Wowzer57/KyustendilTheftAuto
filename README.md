@@ -21,11 +21,13 @@ Open the local URL Vite prints (usually `http://localhost:5173`).
 
 | Key | Action |
 | --- | --- |
-| W A S D | Move / drive |
+| W A S D | Move / steer |
+| W | Gas (in car) |
+| S | Brake / reverse (in car) |
 | Mouse | Look (on foot) |
 | Shift | Sprint |
 | E | Enter / exit nearest car |
-| Esc | Release mouse |
+| Esc | Pause (Resume / Back to map / Main menu) |
 
 ## Refresh city data
 

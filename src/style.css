@@ -346,7 +346,8 @@ button {
   height: 100%;
 }
 
-.controls-modal {
+.controls-modal,
+.pause-modal {
   position: absolute;
   inset: 0;
   background: rgba(8, 12, 10, 0.72);
@@ -356,8 +357,13 @@ button {
   z-index: 10;
 }
 
-.controls-modal[hidden] {
+.controls-modal[hidden],
+.pause-modal[hidden] {
   display: none !important;
+}
+
+.pause-card .menu-actions {
+  animation: none;
 }
 
 .controls-card {

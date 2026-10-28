@@ -38,13 +38,26 @@ app.innerHTML = `
     <div class="controls-card">
       <h3>Controls</h3>
       <ul>
-        <li><strong>W A S D</strong> — move / drive</li>
+        <li><strong>W A S D</strong> — move / steer</li>
+        <li><strong>W</strong> — gas (in car)</li>
+        <li><strong>S</strong> — brake / reverse (in car)</li>
         <li><strong>Mouse</strong> — look (click to capture)</li>
         <li><strong>Shift</strong> — sprint (on foot)</li>
         <li><strong>E</strong> — enter / exit car</li>
-        <li><strong>Esc</strong> — release mouse</li>
+        <li><strong>Esc</strong> — pause</li>
       </ul>
       <button type="button" class="btn btn-primary" id="btn-controls-close">Got it</button>
+    </div>
+  </div>
+
+  <div class="pause-modal" id="pause-modal" hidden>
+    <div class="controls-card pause-card">
+      <h3>Paused</h3>
+      <div class="menu-actions">
+        <button type="button" class="btn btn-primary" id="btn-resume">Resume</button>
+        <button type="button" class="btn" id="btn-back-map">Back to map</button>
+        <button type="button" class="btn" id="btn-main-menu">Main menu</button>
+      </div>
     </div>
   </div>
 `
@@ -55,6 +68,7 @@ const gameWrap = app.querySelector<HTMLElement>('#game-canvas-wrap')!
 const canvas = app.querySelector<HTMLCanvasElement>('#game-canvas')!
 const hud = app.querySelector<HTMLElement>('#hud')!
 const controlsModal = app.querySelector<HTMLElement>('#controls-modal')!
+const pauseModal = app.querySelector<HTMLElement>('#pause-modal')!
 
 const hudMode = app.querySelector<HTMLElement>('#hud-mode')!
 const hudLoc = app.querySelector<HTMLElement>('#hud-loc')!
@@ -77,6 +91,13 @@ async function loadCity(): Promise<CityData> {
   const res = await fetch('/city/kyustendil-center.json')
   if (!res.ok) throw new Error('Failed to load city data')
   return (await res.json()) as CityData
+}
+
+function leaveGame() {
+  hide(gameWrap)
+  hide(hud)
+  hide(pauseModal)
+  game = null
 }
 
 function openMapSelect() {
@@ -107,36 +128,50 @@ function startGame(spawn: SpawnPoint) {
   mapSelect = null
   hide(mapSelectEl)
   hide(mainMenu)
+  hide(pauseModal)
   show(gameWrap)
   show(hud)
 
   game?.stop()
-  game = new Game(canvas, city, {
-    setMode: (mode: GameMode) => {
-      hudMode.textContent = mode === 'walk' ? 'Walk' : 'Drive'
-      crosshair.style.opacity = mode === 'walk' ? '0.7' : '0'
+  game = new Game(
+    canvas,
+    city,
+    {
+      setMode: (mode: GameMode) => {
+        hudMode.textContent = mode === 'walk' ? 'Walk' : 'Drive'
+        crosshair.style.opacity = mode === 'walk' ? '0.7' : '0'
+      },
+      setPrompt: (text) => {
+        if (!text) {
+          promptEl.classList.remove('visible')
+          promptEl.textContent = ''
+          return
+        }
+        promptEl.textContent = text
+        promptEl.classList.add('visible')
+      },
+      setSpeed: (kmh) => {
+        if (kmh == null) {
+          speedo.classList.remove('visible')
+          return
+        }
+        speedo.classList.add('visible')
+        speedo.innerHTML = `${Math.round(kmh)} <span style="font-size:1rem">km/h</span>`
+      },
+      setLocation: (name) => {
+        hudLoc.textContent = name
+      },
+      setPaused: (paused) => {
+        if (paused) show(pauseModal)
+        else hide(pauseModal)
+      },
     },
-    setPrompt: (text) => {
-      if (!text) {
-        promptEl.classList.remove('visible')
-        promptEl.textContent = ''
-        return
-      }
-      promptEl.textContent = text
-      promptEl.classList.add('visible')
+    (action) => {
+      leaveGame()
+      if (action === 'map') openMapSelect()
+      else show(mainMenu)
     },
-    setSpeed: (kmh) => {
-      if (kmh == null) {
-        speedo.classList.remove('visible')
-        return
-      }
-      speedo.classList.add('visible')
-      speedo.innerHTML = `${Math.round(kmh)} <span style="font-size:1rem">km/h</span>`
-    },
-    setLocation: (name) => {
-      hudLoc.textContent = name
-    },
-  })
+  )
   game.startAt(spawn)
 }
 
@@ -149,6 +184,15 @@ app.querySelector('#btn-controls')!.addEventListener('click', () => {
 })
 app.querySelector('#btn-controls-close')!.addEventListener('click', () => {
   hide(controlsModal)
+})
+app.querySelector('#btn-resume')!.addEventListener('click', () => {
+  game?.handlePauseAction('resume')
+})
+app.querySelector('#btn-back-map')!.addEventListener('click', () => {
+  game?.handlePauseAction('map')
+})
+app.querySelector('#btn-main-menu')!.addEventListener('click', () => {
+  game?.handlePauseAction('menu')
 })
 
 const boot = app.querySelector<HTMLElement>('.tagline')!
