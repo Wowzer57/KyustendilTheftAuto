@@ -8,6 +8,7 @@ export interface SpawnPoint {
   color: string
   x: number
   z: number
+  blip: string
 }
 
 export interface BuildingData {
@@ -15,6 +16,8 @@ export interface BuildingData {
   height: number
   color: string
   name: string | null
+  levels: number
+  kind: string
 }
 
 export interface RoadData {
@@ -22,10 +25,13 @@ export interface RoadData {
   width: number
   kind: string
   name: string | null
+  /** both | left | right | none — used to generate pavement strips */
+  sidewalk: 'both' | 'left' | 'right' | 'none'
 }
 
 export interface AreaData {
   footprint: Vec2[]
+  kind?: string
 }
 
 export interface CityData {
@@ -39,6 +45,8 @@ export interface CityData {
       roads: number
       parks: number
       water: number
+      plazas: number
+      pavements: number
     }
   }
   spawns: SpawnPoint[]
@@ -46,6 +54,9 @@ export interface CityData {
   roads: RoadData[]
   parks: AreaData[]
   water: AreaData[]
+  plazas: AreaData[]
+  /** Offset sidewalk ribbons generated from OSM roads */
+  pavements: RoadData[]
 }
 
 export type GameMode = 'walk' | 'drive'

@@ -335,17 +335,15 @@ button {
   position: absolute;
   left: 1rem;
   bottom: 1rem;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 1px solid rgba(212, 160, 23, 0.45);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-  background: rgba(12, 20, 16, 0.85);
+  overflow: visible;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55));
+  pointer-events: none;
 }
 
 #minimap {
   display: block;
-  width: 168px;
-  height: 168px;
+  width: 180px;
+  height: 216px;
 }
 
 #game-canvas-wrap {

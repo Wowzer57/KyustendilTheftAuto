@@ -258,11 +258,12 @@ export class Game {
 
   private updateOrientationHud() {
     const pose = this.playerPose()
-    const name = this.world.nearestLandmarkName(pose.x, pose.z) ?? 'Kyustendil center'
+    const name = this.world.nearestLandmarkName(pose.x, pose.z) ?? 'City Center'
     if (name !== this.lastLocName) {
       this.lastLocName = name
       this.hud.setLocation(name)
     }
+    this.minimap.setZone('KYUSTENDIL', name)
     const carPoses = this.cars
       .filter((c) => c !== this.activeCar)
       .map((c) => ({

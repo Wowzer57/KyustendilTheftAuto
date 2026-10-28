@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { CityData, SpawnPoint, Vec2 } from '../types'
 import { createLandmarkLabel } from './labels'
+import { facadeMaterial, getPavementTexture, roofMaterial } from './materials'
 
 export interface Collider {
   minX: number
@@ -78,7 +79,9 @@ export class CityWorld {
     this.bounds = this.computeBounds()
     this.buildGround()
     this.buildParks()
+    this.buildPlazas()
     this.buildWater()
+    this.buildPavements()
     this.buildRoads()
     this.buildBuildings()
     this.addLandmarkMarkers()
@@ -114,7 +117,7 @@ export class CityWorld {
     const d = maxZ - minZ + pad * 2
     const geo = new THREE.PlaneGeometry(w, d)
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x3d4f3a,
+      color: 0x4a5c42,
       roughness: 1,
       metalness: 0,
     })
@@ -141,6 +144,24 @@ export class CityWorld {
     }
   }
 
+  private buildPlazas() {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xc2b49a,
+      map: getPavementTexture(),
+      roughness: 0.92,
+    })
+    for (const plaza of this.city.plazas || []) {
+      const shape = shapeFromRing(plaza.footprint)
+      if (!shape) continue
+      const geo = new THREE.ShapeGeometry(shape)
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.rotation.x = -Math.PI / 2
+      mesh.position.y = 0.025
+      mesh.receiveShadow = true
+      this.group.add(mesh)
+    }
+  }
+
   private buildWater() {
     const mat = new THREE.MeshStandardMaterial({
       color: 0x3a7ca5,
@@ -158,28 +179,50 @@ export class CityWorld {
     }
   }
 
+  private buildPavements() {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xb9ab97,
+      map: getPavementTexture(),
+      roughness: 0.95,
+    })
+    for (const pave of this.city.pavements || []) {
+      if (pave.path.length < 2) continue
+      const geo = roadRibbon(pave.path, pave.width)
+      if (!geo) continue
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.y = 0.028
+      mesh.receiveShadow = true
+      this.group.add(mesh)
+    }
+  }
+
   private buildRoads() {
     const majorMat = new THREE.MeshStandardMaterial({
-      color: 0x5a5a5a,
+      color: 0x4e4e4e,
       roughness: 0.88,
     })
     const streetMat = new THREE.MeshStandardMaterial({
-      color: 0x3f3f3f,
+      color: 0x3a3a3a,
       roughness: 0.92,
     })
     const alleyMat = new THREE.MeshStandardMaterial({
-      color: 0x333333,
+      color: 0x2e2e2e,
       roughness: 0.95,
     })
     const pedestrian = new THREE.MeshStandardMaterial({
       color: 0xc4b396,
+      map: getPavementTexture(),
       roughness: 0.95,
     })
+    const curbMat = new THREE.MeshStandardMaterial({
+      color: 0x8a857c,
+      roughness: 0.9,
+    })
     const centerLine = new THREE.MeshStandardMaterial({
-      color: 0xd4a017,
+      color: 0xe6c84a,
       roughness: 0.7,
-      emissive: 0xd4a017,
-      emissiveIntensity: 0.15,
+      emissive: 0xe6c84a,
+      emissiveIntensity: 0.12,
     })
 
     for (const road of this.city.roads) {
@@ -187,13 +230,14 @@ export class CityWorld {
         road.kind === 'pedestrian' ||
         road.kind === 'footway' ||
         road.kind === 'path' ||
+        road.kind === 'steps' ||
         road.kind === 'living_street'
       const isMajor =
         road.kind === 'primary' ||
         road.kind === 'trunk' ||
         road.kind === 'secondary'
       const isTertiary = road.kind === 'tertiary'
-      const widthMul = isMajor ? 1.25 : isTertiary ? 1.1 : isPed ? 1.05 : 0.95
+      const widthMul = isMajor ? 1.2 : isTertiary ? 1.08 : isPed ? 1.0 : 1.0
       const geo = roadRibbon(road.path, road.width * widthMul)
       if (!geo) continue
       const mat = isPed
@@ -204,16 +248,27 @@ export class CityWorld {
             ? alleyMat
             : streetMat
       const mesh = new THREE.Mesh(geo, mat)
-      mesh.position.y = isMajor ? 0.035 : 0.02
+      mesh.position.y = isMajor ? 0.04 : 0.032
       mesh.receiveShadow = true
       this.group.add(mesh)
 
-      // Thin center stripe on major roads for instant orientation
+      // Soft curb edges on drivable streets
+      if (!isPed && road.path.length >= 2) {
+        const curbW = road.width * widthMul + 0.55
+        const curbGeo = roadRibbon(road.path, curbW)
+        if (curbGeo) {
+          const curb = new THREE.Mesh(curbGeo, curbMat)
+          curb.position.y = 0.018
+          curb.receiveShadow = true
+          this.group.add(curb)
+        }
+      }
+
       if (isMajor && road.path.length >= 2) {
-        const stripe = roadRibbon(road.path, Math.max(0.35, road.width * 0.08))
+        const stripe = roadRibbon(road.path, Math.max(0.3, road.width * 0.07))
         if (stripe) {
           const line = new THREE.Mesh(stripe, centerLine)
-          line.position.y = 0.05
+          line.position.y = 0.055
           this.group.add(line)
         }
       }
@@ -245,27 +300,26 @@ export class CityWorld {
   }
 
   private buildBuildings() {
-    // Merge by color buckets for fewer draw calls
+    // Bucket by color so facade materials are shared
     const buckets = new Map<string, BuildingDataBucket>()
 
     for (const b of this.city.buildings) {
       const [cx, cz] = this.footprintCentroid(b.footprint)
       const near = this.nearestSpawn(cx, cz)
       const dist = near ? Math.hypot(near.x - cx, near.z - cz) : Infinity
-      // Landmark-adjacent buildings: taller + tinted so the center reads
       let height = b.height
       let color = b.color
       if (near && dist < 45) {
-        height = Math.max(height * 1.35, height + 3)
-        color = mixHex(b.color, near.color, 0.35)
+        height = Math.max(height * 1.3, height + 2.5)
+        color = mixHex(b.color, near.color, 0.3)
       } else if (near && dist < 90) {
-        height = height * 1.12
-        color = mixHex(b.color, near.color, 0.12)
+        height = height * 1.1
+        color = mixHex(b.color, near.color, 0.1)
       }
 
       let bucket = buckets.get(color)
       if (!bucket) {
-        bucket = { color, meshes: [] }
+        bucket = { color, meshes: [], roofs: [] }
         buckets.set(color, bucket)
       }
       const shape = shapeFromRing(b.footprint)
@@ -274,12 +328,31 @@ export class CityWorld {
         depth: height,
         bevelEnabled: false,
       })
-      // Shape is in X/Y; extrude goes +Z. Rotate to stand on XZ ground.
       geo.rotateX(-Math.PI / 2)
+      // Scale facade UVs roughly by footprint size / levels
+      const uv = geo.attributes.uv
+      if (uv) {
+        const levels = Math.max(1, b.levels || Math.round(height / 3.2))
+        for (let i = 0; i < uv.count; i++) {
+          uv.setXY(i, uv.getX(i) * 2, uv.getY(i) * levels * 0.5)
+        }
+      }
       const mesh = new THREE.Mesh(geo)
       mesh.castShadow = true
       mesh.receiveShadow = true
       bucket.meshes.push(mesh)
+
+      // Flat roof cap
+      const roofShape = shapeFromRing(b.footprint)
+      if (roofShape) {
+        const roofGeo = new THREE.ShapeGeometry(roofShape)
+        roofGeo.rotateX(-Math.PI / 2)
+        const roof = new THREE.Mesh(roofGeo)
+        roof.position.y = height + 0.02
+        roof.castShadow = true
+        roof.receiveShadow = true
+        bucket.roofs.push(roof)
+      }
 
       let minX = Infinity
       let maxX = -Infinity
@@ -291,7 +364,6 @@ export class CityWorld {
         minZ = Math.min(minZ, z)
         maxZ = Math.max(maxZ, z)
       }
-      // AABB is a loose broadphase; footprint drives the real push-out
       this.colliders.push({
         minX,
         maxX,
@@ -303,14 +375,15 @@ export class CityWorld {
     }
 
     for (const bucket of buckets.values()) {
-      const mat = new THREE.MeshStandardMaterial({
-        color: bucket.color,
-        roughness: 0.85,
-        metalness: 0.05,
-      })
+      const wallMat = facadeMaterial(bucket.color)
+      const roofMat = roofMaterial(bucket.color)
       for (const mesh of bucket.meshes) {
-        mesh.material = mat
+        mesh.material = wallMat
         this.group.add(mesh)
+      }
+      for (const roof of bucket.roofs) {
+        roof.material = roofMat
+        this.group.add(roof)
       }
     }
   }
@@ -488,6 +561,7 @@ function pushCircleFromPolygon(
 interface BuildingDataBucket {
   color: string
   meshes: THREE.Mesh[]
+  roofs: THREE.Mesh[]
 }
 
 function mixHex(a: string, b: string, t: number): string {

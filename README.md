@@ -29,7 +29,9 @@ Open the local URL Vite prints (usually `http://localhost:5173`).
 | E | Enter / exit nearest car |
 | Esc | Pause (Resume / Back to map / Main menu) |
 
-While playing, a **minimap** (bottom-left) shows nearby streets, landmark dots, and your facing direction. Floating labels mark Velbazhd Square, Bulgaria Blvd, and other spawn landmarks.
+While playing, a **FiveM-style radar** (bottom-left) shows Kyustendil streets (yellow majors), landmark letter blips, a north marker, and a KYUSTENDIL zone strip. Floating labels mark Velbazhd Square, Bulgaria Blvd, and other spawn landmarks.
+
+**Map fidelity:** building footprints and road centerlines are **1:1 OpenStreetMap**. Heights, road widths, sidewalks, roofs, and facades are inferred / stylized low-poly — not photoreal.
 
 ## Refresh city data
 
