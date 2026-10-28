@@ -30,8 +30,9 @@ const LANDMARKS = [
   {
     id: 'velbazhd',
     name: 'Velbazhd Square',
-    lat: 42.28355,
-    lon: 22.68855,
+    // Large OSM plaza by municipality / post (not the old southern guess)
+    lat: 42.28085,
+    lon: 22.68845,
     color: '#c45c26',
     blip: 'V',
   },

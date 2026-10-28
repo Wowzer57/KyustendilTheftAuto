@@ -1,7 +1,19 @@
 import * as THREE from 'three'
 import type { CityData, SpawnPoint, Vec2 } from '../types'
 import { createLandmarkLabel } from './labels'
-import { facadeMaterial, getPavementTexture, roofMaterial } from './materials'
+import {
+  applyBuildingUVs,
+  facadeMaterial,
+  getPavementTexture,
+  getPlazaMosaicTexture,
+  roofMaterial,
+  type FacadeStyle,
+} from './materials'
+import {
+  footprintCentroid,
+  isOnSquareRing,
+  resolveLandmarkBuildings,
+} from './landmarkOverrides'
 
 export interface Collider {
   minX: number
@@ -80,6 +92,7 @@ export class CityWorld {
     this.buildGround()
     this.buildParks()
     this.buildPlazas()
+    this.buildPlazaMosaic()
     this.buildWater()
     this.buildPavements()
     this.buildRoads()
@@ -160,6 +173,68 @@ export class CityWorld {
       mesh.receiveShadow = true
       this.group.add(mesh)
     }
+  }
+
+  /** Central rectangle with drawings on Velbazhd plaza. */
+  private buildPlazaMosaic() {
+    const plazas = this.city.plazas || []
+    // Prefer the large square near municipality (~ -210, 295)
+    let best: { footprint: Vec2[]; score: number } | null = null
+    for (const p of plazas) {
+      const [cx, cz] = footprintCentroid(p.footprint)
+      const d = Math.hypot(cx - -210, cz - 295)
+      let area = 0
+      for (let i = 0; i < p.footprint.length - 1; i++) {
+        area +=
+          p.footprint[i][0] * p.footprint[i + 1][1] -
+          p.footprint[i + 1][0] * p.footprint[i][1]
+      }
+      area = Math.abs(area / 2)
+      const score = area / (1 + d)
+      if (!best || score > best.score) best = { footprint: p.footprint, score }
+    }
+    if (!best || best.score < 10) {
+      // Fallback rectangle at plaza center if plaza list is empty
+      this.addMosaicRect(-210, 295, 28, 18)
+      return
+    }
+    const [cx, cz] = footprintCentroid(best.footprint)
+    let minX = Infinity
+    let maxX = -Infinity
+    let minZ = Infinity
+    let maxZ = -Infinity
+    for (const [x, z] of best.footprint) {
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minZ = Math.min(minZ, z)
+      maxZ = Math.max(maxZ, z)
+    }
+    const w = Math.max(16, (maxX - minX) * 0.42)
+    const d = Math.max(12, (maxZ - minZ) * 0.42)
+    this.addMosaicRect(cx, cz, w, d)
+  }
+
+  private addMosaicRect(cx: number, cz: number, width: number, depth: number) {
+    const geo = new THREE.PlaneGeometry(width, depth)
+    const mat = new THREE.MeshStandardMaterial({
+      map: getPlazaMosaicTexture(),
+      roughness: 0.85,
+      metalness: 0.02,
+    })
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.rotation.x = -Math.PI / 2
+    mesh.position.set(cx, 0.045, cz)
+    mesh.receiveShadow = true
+    this.group.add(mesh)
+
+    // Low stone curb around the art rectangle
+    const edge = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 1.2, 0.18, depth + 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a62, roughness: 0.9 }),
+    )
+    edge.position.set(cx, 0.03, cz)
+    edge.receiveShadow = true
+    this.group.add(edge)
   }
 
   private buildWater() {
@@ -288,70 +363,36 @@ export class CityWorld {
     return best
   }
 
-  private footprintCentroid(ring: Vec2[]): [number, number] {
-    let x = 0
-    let z = 0
-    const n = Math.max(ring.length - 1, 1)
-    for (let i = 0; i < n; i++) {
-      x += ring[i][0]
-      z += ring[i][1]
-    }
-    return [x / n, z / n]
-  }
-
   private buildBuildings() {
-    // Bucket by color so facade materials are shared
+    const landmarks = resolveLandmarkBuildings(this.city.buildings)
+    // Shared buckets for non-landmark buildings (key: style|color)
     const buckets = new Map<string, BuildingDataBucket>()
 
-    for (const b of this.city.buildings) {
-      const [cx, cz] = this.footprintCentroid(b.footprint)
-      const near = this.nearestSpawn(cx, cz)
-      const dist = near ? Math.hypot(near.x - cx, near.z - cz) : Infinity
+    this.city.buildings.forEach((b, index) => {
+      const [cx, cz] = footprintCentroid(b.footprint)
+      const lm = landmarks.get(index)
+      const onRing = isOnSquareRing(cx, cz)
+
       let height = b.height
       let color = b.color
-      if (near && dist < 45) {
-        height = Math.max(height * 1.3, height + 2.5)
-        color = mixHex(b.color, near.color, 0.3)
-      } else if (near && dist < 90) {
-        height = height * 1.1
-        color = mixHex(b.color, near.color, 0.1)
-      }
+      let style: FacadeStyle = 'default'
 
-      let bucket = buckets.get(color)
-      if (!bucket) {
-        bucket = { color, meshes: [], roofs: [] }
-        buckets.set(color, bucket)
-      }
-      const shape = shapeFromRing(b.footprint)
-      if (!shape) continue
-      const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: height,
-        bevelEnabled: false,
-      })
-      geo.rotateX(-Math.PI / 2)
-      // Scale facade UVs roughly by footprint size / levels
-      const uv = geo.attributes.uv
-      if (uv) {
-        const levels = Math.max(1, b.levels || Math.round(height / 3.2))
-        for (let i = 0; i < uv.count; i++) {
-          uv.setXY(i, uv.getX(i) * 2, uv.getY(i) * levels * 0.5)
+      if (lm) {
+        height = Math.max(height * lm.heightMul, height + 2)
+        color = lm.color
+        style = lm.style
+      } else if (onRing) {
+        // Square ring storefronts share a coherent look
+        height = Math.max(height * 1.15, height + 1.5)
+        color = mixHex(b.color, '#c4a484', 0.25)
+        style = 'center'
+      } else {
+        const near = this.nearestSpawn(cx, cz)
+        const dist = near ? Math.hypot(near.x - cx, near.z - cz) : Infinity
+        if (near && dist < 45) {
+          height = Math.max(height * 1.2, height + 2)
+          color = mixHex(b.color, near.color, 0.25)
         }
-      }
-      const mesh = new THREE.Mesh(geo)
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      bucket.meshes.push(mesh)
-
-      // Flat roof cap
-      const roofShape = shapeFromRing(b.footprint)
-      if (roofShape) {
-        const roofGeo = new THREE.ShapeGeometry(roofShape)
-        roofGeo.rotateX(-Math.PI / 2)
-        const roof = new THREE.Mesh(roofGeo)
-        roof.position.y = height + 0.02
-        roof.castShadow = true
-        roof.receiveShadow = true
-        bucket.roofs.push(roof)
       }
 
       let minX = Infinity
@@ -364,6 +405,34 @@ export class CityWorld {
         minZ = Math.min(minZ, z)
         maxZ = Math.max(maxZ, z)
       }
+      const fw = Math.max(1, maxX - minX)
+      const fd = Math.max(1, maxZ - minZ)
+      const levels = Math.max(1, b.levels || Math.round(height / 3.2))
+
+      const shape = shapeFromRing(b.footprint)
+      if (!shape) return
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: height,
+        bevelEnabled: false,
+      })
+      geo.rotateX(-Math.PI / 2)
+      applyBuildingUVs(geo, fw, fd, height, levels)
+
+      const mesh = new THREE.Mesh(geo)
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+
+      const roofShape = shapeFromRing(b.footprint)
+      let roof: THREE.Mesh | null = null
+      if (roofShape) {
+        const roofGeo = new THREE.ShapeGeometry(roofShape)
+        roofGeo.rotateX(-Math.PI / 2)
+        roof = new THREE.Mesh(roofGeo)
+        roof.position.y = height + 0.02
+        roof.castShadow = true
+        roof.receiveShadow = true
+      }
+
       this.colliders.push({
         minX,
         maxX,
@@ -372,10 +441,36 @@ export class CityWorld {
         height,
         footprint: b.footprint,
       })
-    }
+
+      // Landmarks get unique materials + signs (not bucket-shared)
+      if (lm) {
+        const wallMat = facadeMaterial(color, style)
+        const roofMat = roofMaterial(color)
+        mesh.material = wallMat
+        this.group.add(mesh)
+        if (roof) {
+          roof.material = roofMat
+          this.group.add(roof)
+        }
+        const sign = createLandmarkLabel(lm.sign, lm.signColor)
+        sign.position.set(cx, height + 3.2, cz)
+        sign.scale.set(16, 4, 1)
+        this.group.add(sign)
+        return
+      }
+
+      const key = `${style}|${color}`
+      let bucket = buckets.get(key)
+      if (!bucket) {
+        bucket = { color, style, meshes: [], roofs: [] }
+        buckets.set(key, bucket)
+      }
+      bucket.meshes.push(mesh)
+      if (roof) bucket.roofs.push(roof)
+    })
 
     for (const bucket of buckets.values()) {
-      const wallMat = facadeMaterial(bucket.color)
+      const wallMat = facadeMaterial(bucket.color, bucket.style)
       const roofMat = roofMaterial(bucket.color)
       for (const mesh of bucket.meshes) {
         mesh.material = wallMat
@@ -560,6 +655,7 @@ function pushCircleFromPolygon(
 
 interface BuildingDataBucket {
   color: string
+  style: FacadeStyle
   meshes: THREE.Mesh[]
   roofs: THREE.Mesh[]
 }

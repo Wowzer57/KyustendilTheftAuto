@@ -2,19 +2,20 @@ import * as THREE from 'three'
 
 /** Billboard label for landmarks — always faces camera. */
 export function createLandmarkLabel(text: string, color: string): THREE.Sprite {
+  const padX = 28
+  const boxH = 64
+  const font = 'bold 42px "IBM Plex Sans", system-ui, sans-serif'
+  // Measure first
+  const measure = document.createElement('canvas').getContext('2d')!
+  measure.font = font
+  const textW = measure.measureText(text).width
+  const boxW = textW + padX * 2
   const canvas = document.createElement('canvas')
-  canvas.width = 512
+  canvas.width = Math.min(1024, Math.max(256, Math.ceil(boxW + 24)))
   canvas.height = 128
   const ctx = canvas.getContext('2d')!
 
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  // Pill background
-  const padX = 28
-  ctx.font = 'bold 42px "IBM Plex Sans", system-ui, sans-serif'
-  const metrics = ctx.measureText(text)
-  const textW = metrics.width
-  const boxW = textW + padX * 2
-  const boxH = 64
   const boxX = (canvas.width - boxW) / 2
   const boxY = (canvas.height - boxH) / 2
 
@@ -26,6 +27,7 @@ export function createLandmarkLabel(text: string, color: string): THREE.Sprite {
   roundRect(ctx, boxX, boxY, boxW, boxH, 12)
   ctx.stroke()
 
+  ctx.font = font
   ctx.fillStyle = '#f2efe6'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -40,7 +42,8 @@ export function createLandmarkLabel(text: string, color: string): THREE.Sprite {
     depthWrite: false,
   })
   const sprite = new THREE.Sprite(mat)
-  sprite.scale.set(14, 3.5, 1)
+  const worldW = Math.min(22, 10 + text.length * 0.55)
+  sprite.scale.set(worldW, 3.8, 1)
   sprite.renderOrder = 10
   return sprite
 }
