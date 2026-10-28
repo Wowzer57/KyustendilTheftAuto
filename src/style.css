@@ -1,0 +1,431 @@
+:root {
+  --bg-deep: #0e1612;
+  --bg-mid: #1a2a22;
+  --accent: #d4a017;
+  --accent-hot: #e85d04;
+  --text: #f2efe6;
+  --muted: #a8b5a8;
+  --panel: rgba(12, 20, 16, 0.88);
+  --line: rgba(242, 239, 230, 0.14);
+  --font-display: 'Bebas Neue', Impact, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-deep);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen[hidden] {
+  display: none !important;
+}
+
+/* ---- Main menu ---- */
+#main-menu {
+  background:
+    radial-gradient(ellipse 80% 60% at 70% 30%, rgba(232, 93, 4, 0.28), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 20% 80%, rgba(42, 157, 143, 0.22), transparent 50%),
+    linear-gradient(160deg, #0e1612 0%, #1c2e24 45%, #24352a 100%);
+}
+
+.menu-card {
+  text-align: center;
+  padding: 2.5rem 3rem;
+  max-width: 560px;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: clamp(3.2rem, 10vw, 5.5rem);
+  letter-spacing: 0.04em;
+  line-height: 0.92;
+  margin: 0 0 0.6rem;
+  background: linear-gradient(180deg, #ffe9a8 0%, var(--accent) 55%, var(--accent-hot) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 10px 40px rgba(212, 160, 23, 0.25);
+  animation: brand-in 0.8s ease-out both;
+}
+
+.tagline {
+  margin: 0 0 2rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+  animation: fade-up 0.7s 0.15s ease-out both;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  animation: fade-up 0.7s 0.28s ease-out both;
+}
+
+.btn {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  color: var(--text);
+  padding: 0.85rem 1.8rem;
+  min-width: 220px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(212, 160, 23, 0.55);
+  background: linear-gradient(180deg, rgba(212, 160, 23, 0.22), rgba(255, 255, 255, 0.04));
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, #e8b923, #c45c26);
+  border-color: transparent;
+  color: #1a1208;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #f0c84a, #e85d04);
+}
+
+.menu-hint {
+  margin-top: 1.8rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  animation: fade-up 0.7s 0.4s ease-out both;
+}
+
+/* ---- Map select ---- */
+#map-select {
+  background: var(--bg-deep);
+  flex-direction: column;
+  padding: 1.25rem;
+  gap: 1rem;
+}
+
+.map-header {
+  width: min(960px, 100%);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.map-header h2 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: 0.04em;
+  margin: 0;
+  color: var(--accent);
+}
+
+.map-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.map-stage-wrap {
+  position: relative;
+  width: min(960px, 100%);
+  height: min(70vh, 620px);
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(26, 42, 34, 0.9), rgba(14, 22, 18, 0.95)),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 31px,
+      rgba(255, 255, 255, 0.03) 32px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 31px,
+      rgba(255, 255, 255, 0.03) 32px
+    );
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+#city-map {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+
+#city-map.dragging {
+  cursor: grabbing;
+}
+
+.map-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  z-index: 2;
+}
+
+.map-marker .pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 2px solid #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s ease;
+}
+
+.map-marker .label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.2rem 0.45rem;
+  color: var(--text);
+}
+
+.map-marker:hover .pin,
+.map-marker.selected .pin {
+  transform: rotate(-45deg) scale(1.2);
+}
+
+.map-marker.selected .label {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.map-footer {
+  width: min(960px, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.map-footer .selection {
+  color: var(--muted);
+}
+
+.map-footer .selection strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---- HUD / game overlay ---- */
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#hud[hidden] {
+  display: none !important;
+}
+
+.hud-top {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  right: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.hud-panel {
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.hud-panel strong {
+  color: var(--text);
+}
+
+.crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+.prompt {
+  position: absolute;
+  bottom: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.prompt.visible {
+  opacity: 1;
+}
+
+.speedo {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+}
+
+.speedo.visible {
+  opacity: 1;
+}
+
+#game-canvas-wrap {
+  position: absolute;
+  inset: 0;
+}
+
+#game-canvas-wrap[hidden] {
+  display: none !important;
+}
+
+#game-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.controls-modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 12, 10, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.controls-modal[hidden] {
+  display: none !important;
+}
+
+.controls-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 1.5rem 1.75rem;
+  max-width: 420px;
+  width: calc(100% - 2rem);
+}
+
+.controls-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  margin: 0 0 0.75rem;
+  color: var(--accent);
+}
+
+.controls-card ul {
+  margin: 0 0 1.25rem;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.controls-card li strong {
+  color: var(--text);
+}
+
+@keyframes brand-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .menu-card {
+    padding: 1.5rem;
+  }
+
+  .map-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .map-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .map-footer .btn {
+    width: 100%;
+  }
+}
