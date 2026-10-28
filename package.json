@@ -1,0 +1,20 @@
+{
+  "name": "kyustendil-theft-auto",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "fetch-city": "node scripts/fetch-osm.mjs"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  }
+}
