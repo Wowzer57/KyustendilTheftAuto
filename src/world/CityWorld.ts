@@ -16,7 +16,7 @@ import {
 } from './landmarkOverrides'
 import {
   createObshtinaBuilding,
-  yawToward,
+  orientObshtinaToFootprint,
 } from './landmarks/ObshtinaBuilding'
 
 export interface Collider {
@@ -424,12 +424,10 @@ export class CityWorld {
           height: obsH,
           footprint: b.footprint,
         })
-        const buildingW = Math.min(52, Math.max(38, Math.max(fw, fd) * 0.78))
-        const buildingD = Math.min(20, Math.max(14, Math.min(fw, fd) * 0.42))
-        const obshtina = createObshtinaBuilding(buildingW, buildingD)
-        obshtina.position.set(cx, 0, cz)
-        // Face the Velbazhd plaza center
-        obshtina.rotation.y = yawToward(cx, cz, -210, 295)
+        const orient = orientObshtinaToFootprint(b.footprint, -210, 295)
+        const obshtina = createObshtinaBuilding(orient.width, orient.depth)
+        obshtina.position.set(orient.cx, 0, orient.cz)
+        obshtina.rotation.y = orient.yaw
         this.group.add(obshtina)
         return
       }

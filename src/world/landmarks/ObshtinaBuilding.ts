@@ -234,25 +234,72 @@ function addBulgarianFlag(g: THREE.Group, x: number, y: number, z: number) {
   addBox(g, w, h / 3, 0.04, x, y - h / 6, z, 0xd62612)
 }
 
-/** Yaw so building −Z faces toward target point. */
-export function yawToward(
-  fromX: number,
-  fromZ: number,
-  toX: number,
-  toZ: number,
-): number {
-  // Local forward is −Z; world forward at yaw 0 is −Z.
-  // Direction to target: (dx, dz). Angle from −Z: atan2(dx, -dz)? 
-  // At yaw 0, forward = (0,-1) in XZ if we use -cos for z... 
-  // Three.js object.rotation.y: local -Z rotates toward.
-  // Vector from building to target in XZ:
-  const dx = toX - fromX
-  const dz = toZ - fromZ
-  // We want local -Z to align with (dx, dz).
-  // Local -Z after yaw y becomes (-sin(y), -cos(y)) in XZ.
-  // So -sin(y)=dx/len, -cos(y)=dz/len → y = atan2(dx, dz) ? 
-  // -sin(y) = dx/n, -cos(y) = dz/n → sin(y) = -dx/n, cos(y) = -dz/n
-  // y = atan2(-dx, -dz) = atan2(dx, dz) + π? 
-  // atan2(sin, cos) = atan2(-dx, -dz)
-  return Math.atan2(-dx, -dz)
+/**
+ * Orient the Obshtina to the OSM footprint like on the map:
+ * long local-X axis follows the footprint PCA, front (−Z) toward the plaza.
+ */
+export function orientObshtinaToFootprint(
+  footprint: Array<[number, number]>,
+  faceX: number,
+  faceZ: number,
+): { yaw: number; width: number; depth: number; cx: number; cz: number } {
+  const pts = footprint.slice(0, -1)
+  let cx = 0
+  let cz = 0
+  for (const [x, z] of pts) {
+    cx += x
+    cz += z
+  }
+  cx /= pts.length
+  cz /= pts.length
+
+  // Principal axis (major) via 2D covariance
+  let cxx = 0
+  let czz = 0
+  let cxz = 0
+  for (const [x, z] of pts) {
+    const dx = x - cx
+    const dz = z - cz
+    cxx += dx * dx
+    czz += dz * dz
+    cxz += dx * dz
+  }
+  const theta = 0.5 * Math.atan2(2 * cxz, cxx - czz)
+  // Major axis unit vector in XZ
+  const ax = Math.cos(theta)
+  const az = Math.sin(theta)
+
+  // Extent along major / minor axes
+  let minMajor = Infinity
+  let maxMajor = -Infinity
+  let minMinor = Infinity
+  let maxMinor = -Infinity
+  for (const [x, z] of pts) {
+    const dx = x - cx
+    const dz = z - cz
+    const major = dx * ax + dz * az
+    const minor = -dx * az + dz * ax
+    minMajor = Math.min(minMajor, major)
+    maxMajor = Math.max(maxMajor, major)
+    minMinor = Math.min(minMinor, minor)
+    maxMinor = Math.max(maxMinor, minor)
+  }
+  const width = Math.max(36, Math.min(56, maxMajor - minMajor))
+  const depth = Math.max(14, Math.min(22, maxMinor - minMinor))
+
+  // Align local +X with major axis: local (1,0,0) → (cos yaw, -sin yaw)
+  // Want (cos yaw, -sin yaw) ∥ (ax, az) → yaw = -theta  OR  yaw = -theta + π
+  let yaw = -theta
+
+  // Front local −Z after yaw: (-sin yaw, -cos yaw)
+  const pickFront = (y: number) => {
+    const fx = -Math.sin(y)
+    const fz = -Math.cos(y)
+    return fx * (faceX - cx) + fz * (faceZ - cz)
+  }
+  if (pickFront(yaw) < pickFront(yaw + Math.PI)) {
+    yaw += Math.PI
+  }
+
+  return { yaw, width, depth, cx, cz }
 }
