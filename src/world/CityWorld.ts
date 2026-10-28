@@ -13,18 +13,12 @@ import {
   isOnSquareRing,
   resolveLandmarkBuildings,
 } from './landmarkOverrides'
-import {
-  createObshtinaBuilding,
-  orientObshtinaToFootprint,
-} from './landmarks/ObshtinaBuilding'
-import { createPostOfficeBuilding } from './landmarks/PostOfficeBuilding'
-import { createGalleryBuilding } from './landmarks/GalleryBuilding'
-import { createCafeBuilding } from './landmarks/CafeBuilding'
+import { createObshtinaBuilding } from './landmarks/ObshtinaBuilding'
 import { orientBuildingToFootprint } from './landmarks/buildingUtils'
 import { BuildingWindowBatch, footprintArea } from './BuildingWindows'
 
-/** Plaza centroid — custom landmarks face this. */
-const PLAZA = { x: -210, z: 295 } as const
+/** Plaza centroid — custom landmarks face this (Nominatim ~42.28080, 22.68848). */
+const PLAZA = { x: -207, z: 300 } as const
 
 export interface Collider {
   minX: number
@@ -189,7 +183,7 @@ export class CityWorld {
   /** Central rectangle with drawings on Velbazhd plaza. */
   private buildPlazaMosaic() {
     const plazas = this.city.plazas || []
-    // Prefer the large square near municipality (~ -210, 295)
+    // Prefer the large square near municipality (Nominatim plaza ~ -207, 300)
     let best: { footprint: Vec2[]; score: number } | null = null
     for (const p of plazas) {
       const [cx, cz] = footprintCentroid(p.footprint)
@@ -206,7 +200,7 @@ export class CityWorld {
     }
     if (!best || best.score < 10) {
       // Fallback rectangle at plaza center if plaza list is empty
-      this.addMosaicRect(-210, 295, 28, 18)
+      this.addMosaicRect(PLAZA.x, PLAZA.z, 28, 18)
       return
     }
     const [cx, cz] = footprintCentroid(best.footprint)
@@ -418,7 +412,8 @@ export class CityWorld {
       }
       const levels = Math.max(1, b.levels || Math.round(height / 3.2))
 
-      // Custom low-poly square landmarks — own mesh windows, face plaza
+      // Obshtina keeps a custom neoclassical mesh, oriented to the
+      // plaza-facing OSM edge (not a PCA guess on the irregular footprint).
       if (lm?.id === 'municipality') {
         const obsH = 16
         this.colliders.push({
@@ -429,7 +424,12 @@ export class CityWorld {
           height: obsH,
           footprint: b.footprint,
         })
-        const orient = orientObshtinaToFootprint(b.footprint, PLAZA.x, PLAZA.z)
+        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
+          minW: 36,
+          maxW: 58,
+          minD: 14,
+          maxD: 28,
+        })
         const obshtina = createObshtinaBuilding(orient.width, orient.depth)
         obshtina.position.set(orient.cx, 0, orient.cz)
         obshtina.rotation.y = orient.yaw
@@ -437,75 +437,8 @@ export class CityWorld {
         return
       }
 
-      if (lm?.id === 'post') {
-        const h = 13
-        this.colliders.push({
-          minX,
-          maxX,
-          minZ,
-          maxZ,
-          height: h,
-          footprint: b.footprint,
-        })
-        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
-          minW: 24,
-          maxW: 52,
-          minD: 12,
-          maxD: 26,
-        })
-        const post = createPostOfficeBuilding(orient.width, orient.depth)
-        post.position.set(orient.cx, 0, orient.cz)
-        post.rotation.y = orient.yaw
-        this.group.add(post)
-        return
-      }
-
-      if (lm?.id === 'gallery') {
-        const h = 12
-        this.colliders.push({
-          minX,
-          maxX,
-          minZ,
-          maxZ,
-          height: h,
-          footprint: b.footprint,
-        })
-        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
-          minW: 28,
-          maxW: 56,
-          minD: 14,
-          maxD: 28,
-        })
-        const gallery = createGalleryBuilding(orient.width, orient.depth)
-        gallery.position.set(orient.cx, 0, orient.cz)
-        gallery.rotation.y = orient.yaw
-        this.group.add(gallery)
-        return
-      }
-
-      if (lm?.id === 'slunchevata') {
-        const h = 9
-        this.colliders.push({
-          minX,
-          maxX,
-          minZ,
-          maxZ,
-          height: h,
-          footprint: b.footprint,
-        })
-        const orient = orientBuildingToFootprint(b.footprint, PLAZA.x, PLAZA.z, {
-          minW: 10,
-          maxW: 24,
-          minD: 8,
-          maxD: 16,
-        })
-        const cafe = createCafeBuilding(orient.width, orient.depth)
-        cafe.position.set(orient.cx, 0, orient.cz)
-        cafe.rotation.y = orient.yaw
-        this.group.add(cafe)
-        return
-      }
-
+      // All other landmarks (Поща, gallery, café, shops) keep the real OSM
+      // footprint extrusion — 1:1 with the map — plus styled walls / signs.
       const shape = shapeFromRing(b.footprint)
       if (!shape) return
       const geo = new THREE.ExtrudeGeometry(shape, {
@@ -538,12 +471,9 @@ export class CityWorld {
         footprint: b.footprint,
       })
 
-      // Town-hall-style mesh windows (batched), not facade textures
+      // Windows follow footprint edges, inset into the wall (no AABB pop-out)
       windows.addBuilding({
-        minX,
-        maxX,
-        minZ,
-        maxZ,
+        footprint: b.footprint,
         height,
         levels,
         area: footprintArea(minX, maxX, minZ, maxZ),

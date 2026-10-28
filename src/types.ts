@@ -34,6 +34,19 @@ export interface AreaData {
   kind?: string
 }
 
+export interface PoiData {
+  id: string
+  name: string | null
+  shop: string | null
+  amenity: string | null
+  office: string | null
+  brand: string | null
+  lat: number
+  lon: number
+  x: number
+  z: number
+}
+
 export interface CityData {
   meta: {
     name: string
@@ -47,6 +60,8 @@ export interface CityData {
       water: number
       plazas: number
       pavements: number
+      pois?: number
+      poiNamesSnapped?: number
     }
   }
   spawns: SpawnPoint[]
@@ -57,6 +72,8 @@ export interface CityData {
   plazas: AreaData[]
   /** Offset sidewalk ribbons generated from OSM roads */
   pavements: RoadData[]
+  /** Shop / amenity / office nodes from OSM (1:1). */
+  pois?: PoiData[]
 }
 
 export type GameMode = 'walk' | 'drive'

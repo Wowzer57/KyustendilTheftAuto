@@ -30,9 +30,9 @@ const LANDMARKS = [
   {
     id: 'velbazhd',
     name: 'Velbazhd Square',
-    // Large OSM plaza by municipality / post (not the old southern guess)
-    lat: 42.28085,
-    lon: 22.68845,
+    // Nominatim place=square "Площад Велбъжд"
+    lat: 42.2808018,
+    lon: 22.6884824,
     color: '#c45c26',
     blip: 'V',
   },
@@ -232,16 +232,45 @@ function offsetPath(path, offset) {
   return out
 }
 
+function decodeXml(value) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+}
+
+function tagsFromBlock(block) {
+  const tags = {}
+  for (const t of block.matchAll(/<tag\s+k="([^"]*)"\s+v="([^"]*)"\s*\/>/g)) {
+    tags[t[1]] = decodeXml(t[2])
+  }
+  return tags
+}
+
 function parseOsmXml(xml) {
   const nodes = new Map()
   const ways = []
   const relations = []
 
-  const nodeRe =
-    /<node\s+id="(\d+)"[^>]*\slat="([^"]+)"[^>]*\slon="([^"]+)"[^>]*\/?>/g
+  // Self-closing first — otherwise `[^>]*` eats the `/` and spans to a later </node>
+  const nodeBlockRe =
+    /<node\s+id="(\d+)"([^>/]*)\/>|<node\s+id="(\d+)"([^>]*)>([\s\S]*?)<\/node>/g
   let m
-  while ((m = nodeRe.exec(xml))) {
-    nodes.set(Number(m[1]), { id: Number(m[1]), lat: Number(m[2]), lon: Number(m[3]) })
+  while ((m = nodeBlockRe.exec(xml))) {
+    const id = Number(m[1] || m[3])
+    const attrs = m[2] || m[4] || ''
+    const body = m[5] || ''
+    const latM = /lat="([^"]+)"/.exec(attrs)
+    const lonM = /lon="([^"]+)"/.exec(attrs)
+    if (!latM || !lonM) continue
+    nodes.set(id, {
+      id,
+      lat: Number(latM[1]),
+      lon: Number(lonM[1]),
+      tags: tagsFromBlock(body),
+    })
   }
 
   const wayRe = /<way\s+id="(\d+)"[\s\S]*?<\/way>/g
@@ -249,15 +278,7 @@ function parseOsmXml(xml) {
     const block = m[0]
     const id = Number(m[1])
     const nds = [...block.matchAll(/<nd\s+ref="(\d+)"\s*\/>/g)].map((x) => Number(x[1]))
-    const tags = {}
-    for (const t of block.matchAll(/<tag\s+k="([^"]*)"\s+v="([^"]*)"\s*\/>/g)) {
-      tags[t[1]] = t[2]
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-    }
-    ways.push({ id, nodes: nds, tags })
+    ways.push({ id, nodes: nds, tags: tagsFromBlock(block) })
   }
 
   const relRe = /<relation\s+id="(\d+)"[\s\S]*?<\/relation>/g
@@ -267,18 +288,89 @@ function parseOsmXml(xml) {
     const members = [
       ...block.matchAll(/<member\s+type="([^"]+)"\s+ref="(\d+)"\s+role="([^"]*)"\s*\/>/g),
     ].map((x) => ({ type: x[1], ref: Number(x[2]), role: x[3] }))
-    const tags = {}
-    for (const t of block.matchAll(/<tag\s+k="([^"]*)"\s+v="([^"]*)"\s*\/>/g)) {
-      tags[t[1]] = t[2]
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-    }
-    relations.push({ id, members, tags })
+    relations.push({ id, members, tags: tagsFromBlock(block) })
   }
 
   return { nodes, ways, relations }
+}
+
+function pointInRing(x, z, ring) {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0]
+    const zi = ring[i][1]
+    const xj = ring[j][0]
+    const zj = ring[j][1]
+    const intersect =
+      zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function isUsefulPoi(tags = {}) {
+  if (tags.highway || tags.barrier || tags.natural || tags.entrance) return false
+  return Boolean(
+    tags.shop ||
+      tags.amenity ||
+      tags.office ||
+      tags.tourism ||
+      tags.craft ||
+      tags.brand ||
+      (tags.name && (tags.building || tags.addr)),
+  )
+}
+
+function bakePois(nodes) {
+  const pois = []
+  for (const n of nodes.values()) {
+    const tags = n.tags || {}
+    if (!isUsefulPoi(tags)) continue
+    const name = tags.name || tags['name:en'] || tags.brand || null
+    if (!name && !tags.shop && !tags.amenity && !tags.office) continue
+    const [x, z] = project(n.lat, n.lon)
+    pois.push({
+      id: String(n.id),
+      name,
+      shop: tags.shop || null,
+      amenity: tags.amenity || null,
+      office: tags.office || null,
+      brand: tags.brand || null,
+      lat: n.lat,
+      lon: n.lon,
+      x,
+      z,
+    })
+  }
+  return pois
+}
+
+/** Attach POI names onto unnamed buildings that contain the POI. */
+function snapPoiNamesToBuildings(buildings, pois) {
+  let snapped = 0
+  for (const poi of pois) {
+    if (!poi.name) continue
+    let best = -1
+    let bestArea = Infinity
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i]
+      if (!pointInRing(poi.x, poi.z, b.footprint)) continue
+      const area = Math.abs(polygonArea(b.footprint))
+      if (area < bestArea) {
+        bestArea = area
+        best = i
+      }
+    }
+    if (best < 0) continue
+    const b = buildings[best]
+    // Don't overwrite major named civic buildings
+    if (b.name && /община|пощ|галерия|църква|музей/i.test(b.name)) continue
+    if (!b.name) {
+      b.name = poi.name
+      snapped++
+    }
+  }
+  return snapped
 }
 
 function bakeBuilding(tags, ring) {
@@ -425,6 +517,9 @@ function bakeFromMaps(nodes, ways, relations) {
     uniqueBuildings.push(b)
   }
 
+  const pois = bakePois(nodes)
+  const snapped = snapPoiNamesToBuildings(uniqueBuildings, pois)
+
   const spawns = LANDMARKS.map((l) => {
     const [x, z] = project(l.lat, l.lon)
     return { ...l, x, z }
@@ -434,7 +529,8 @@ function bakeFromMaps(nodes, ways, relations) {
     meta: {
       name: 'Kyustendil City Center',
       source: 'OpenStreetMap',
-      note: 'Footprints/centerlines are OSM 1:1; heights/widths/sidewalks are inferred.',
+      note:
+        'Footprints/centerlines/POIs are OSM 1:1; heights/widths/sidewalks are inferred. Shop names snapped from POI nodes onto containing footprints.',
       bbox: BBOX,
       origin: ORIGIN,
       generatedAt: new Date().toISOString(),
@@ -445,6 +541,8 @@ function bakeFromMaps(nodes, ways, relations) {
         water: water.length,
         plazas: plazas.length,
         pavements: pavements.length,
+        pois: pois.length,
+        poiNamesSnapped: snapped,
       },
     },
     spawns,
@@ -454,6 +552,7 @@ function bakeFromMaps(nodes, ways, relations) {
     water,
     plazas,
     pavements,
+    pois,
   }
 }
 
@@ -482,6 +581,10 @@ async function fetchOverpass() {
   way["leisure"="garden"](${south},${west},${north},${east});
   way["place"="square"](${south},${west},${north},${east});
   relation["building"](${south},${west},${north},${east});
+  node["shop"](${south},${west},${north},${east});
+  node["amenity"](${south},${west},${north},${east});
+  node["office"](${south},${west},${north},${east});
+  node["tourism"](${south},${west},${north},${east});
 );
 (._;>;);
 out body;
@@ -509,8 +612,14 @@ out body;
       const ways = []
       const relations = []
       for (const el of json.elements || []) {
-        if (el.type === 'node') nodes.set(el.id, el)
-        else if (el.type === 'way') ways.push(el)
+        if (el.type === 'node') {
+          nodes.set(el.id, {
+            id: el.id,
+            lat: el.lat,
+            lon: el.lon,
+            tags: el.tags || {},
+          })
+        } else if (el.type === 'way') ways.push(el)
         else if (el.type === 'relation') relations.push(el)
       }
       return { nodes, ways, relations }

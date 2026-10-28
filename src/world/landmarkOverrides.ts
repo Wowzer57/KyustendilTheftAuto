@@ -11,14 +11,25 @@ export interface LandmarkOverride {
   heightMul: number
   /** Match by substring of OSM name (case-insensitive) */
   nameIncludes?: string[]
-  /** World XZ target for nearest-footprint match */
+  /**
+   * World XZ target for nearest-footprint match.
+   * Prefer verified lat/lon projected into city space (see comments).
+   */
   near?: { x: number; z: number; maxDist: number }
+  /** Prefer modest footprints for shops (skip huge civic shells). */
+  maxArea?: number
 }
 
 /**
- * Velbazhd Square ring landmarks.
- * Named OSM buildings matched by name; shops by proximity to known spots.
- * Coords are in the same projected meters as city JSON (origin 42.2835, 22.691).
+ * Velbazhd Square ring landmarks — positions from Nominatim / public listings
+ * projected with origin (42.2835, 22.691), same as the OSM bake.
+ *
+ *  Plaza      42.28080, 22.68848  →  (~-207, 300)
+ *  Obshtina   42.28121, 22.68893  →  (~-171, 254)
+ *  Post       42.28133, 22.68795  →  (~-252, 242)
+ *  A1         42.28016, 22.68871  →  (~-189, 372)  ул. Демокрация 37
+ *  Слънчевата 42.28070, 22.68778  →  (~-265, 312)  ул. Отец Паисий 33
+ *  Малкият Принц — ул. Полк. Стефан Манов 34 (OSM street ~ -96, 505)
  */
 export const SQUARE_LANDMARKS: LandmarkOverride[] = [
   {
@@ -38,6 +49,7 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     color: '#f0e6a8',
     heightMul: 1.35,
     nameIncludes: ['пс кюстендил', 'поща'],
+    near: { x: -252, z: 242, maxDist: 45 },
   },
   {
     id: 'gallery',
@@ -55,8 +67,8 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'cafe',
     color: '#c4a484',
     heightMul: 1.05,
-    // Modest storefront west of Velbazhd plaza (~ -298, 340)
-    near: { x: -298, z: 340, maxDist: 40 },
+    near: { x: -265, z: 312, maxDist: 55 },
+    maxArea: 600,
   },
   {
     id: 'a1',
@@ -65,8 +77,8 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'a1',
     color: '#e8eef2',
     heightMul: 1.05,
-    // North-east of plaza ring
-    near: { x: -181, z: 375, maxDist: 35 },
+    near: { x: -189, z: 372, maxDist: 30 },
+    maxArea: 500,
   },
   {
     id: 'malkiyat-princ',
@@ -75,8 +87,9 @@ export const SQUARE_LANDMARKS: LandmarkOverride[] = [
     style: 'shop',
     color: '#d4b896',
     heightMul: 1.05,
-    // Near post / south-west approach to square
-    near: { x: -280, z: 192, maxDist: 40 },
+    // ул. Полк. Стефан Манов 34 — not on Velbazhd plaza
+    near: { x: -96, z: 505, maxDist: 35 },
+    maxArea: 800,
   },
 ]
 
@@ -91,11 +104,6 @@ function centroid(ring: Vec2[]): [number, number] {
   return [x / n, z / n]
 }
 
-export interface ResolvedLandmark {
-  override: LandmarkOverride
-  buildingIndex: number
-}
-
 /** Assign each override to at most one building (name match wins, else nearest). */
 export function resolveLandmarkBuildings(
   buildings: BuildingData[],
@@ -107,11 +115,21 @@ export function resolveLandmarkBuildings(
   for (const lm of SQUARE_LANDMARKS) {
     if (!lm.nameIncludes?.length) continue
     let hit = -1
+    let bestD = Infinity
     for (let i = 0; i < buildings.length; i++) {
       if (used.has(i)) continue
       const name = (buildings[i].name || '').toLowerCase()
       if (!name) continue
-      if (lm.nameIncludes.some((s) => name.includes(s))) {
+      if (!lm.nameIncludes.some((s) => name.includes(s))) continue
+      // Prefer the name hit closest to near-target when provided
+      if (lm.near) {
+        const [x, z] = centroid(buildings[i].footprint)
+        const d = Math.hypot(x - lm.near.x, z - lm.near.z)
+        if (d < bestD) {
+          bestD = d
+          hit = i
+        }
+      } else {
         hit = i
         break
       }
@@ -128,13 +146,13 @@ export function resolveLandmarkBuildings(
     if (!lm.near) continue
     let best = -1
     let bestD = lm.near.maxDist
+    const maxArea = lm.maxArea ?? 2500
     for (let i = 0; i < buildings.length; i++) {
       if (used.has(i)) continue
       const [x, z] = centroid(buildings[i].footprint)
       const d = Math.hypot(x - lm.near.x, z - lm.near.z)
-      // Prefer modest footprints for shops (not huge galleries)
       const area = footprintArea(buildings[i].footprint)
-      if (area > 2500) continue
+      if (area > maxArea) continue
       if (d < bestD) {
         bestD = d
         best = i
@@ -163,6 +181,5 @@ export function footprintCentroid(ring: Vec2[]): [number, number] {
 
 /** True if building sits on the Velbazhd square ring (near plaza). */
 export function isOnSquareRing(x: number, z: number): boolean {
-  // Plaza centroid ~ (-210, 295)
-  return Math.hypot(x - -210, z - 295) < 110
+  return Math.hypot(x - -207, z - 300) < 120
 }

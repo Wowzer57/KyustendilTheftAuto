@@ -1,10 +1,8 @@
 import * as THREE from 'three'
+import type { Vec2 } from '../types'
 
 export interface WindowPlacement {
-  minX: number
-  maxX: number
-  minZ: number
-  maxZ: number
+  footprint: Vec2[]
   height: number
   levels: number
   area: number
@@ -12,13 +10,15 @@ export interface WindowPlacement {
 
 const FRAME = 0xf2efe8
 const GLASS = 0x1a222c
-const SPACING = 3.8
-const MAX_COLS = 8
+const SPACING = 4.2
+const MAX_COLS = 7
 const MAX_FLOORS = 5
+/** How far windows sit inside the wall (avoids AABB pop-out). */
+const INSET = 0.35
 
 /**
- * Collect Obshtina-style window transforms for an AABB building,
- * then bake into two InstancedMeshes (frame + glass).
+ * Mesh windows placed along actual OSM footprint edges (not AABB),
+ * inset toward the building interior so they sit in the wall.
  */
 export class BuildingWindowBatch {
   private readonly frames: THREE.Matrix4[] = []
@@ -27,61 +27,68 @@ export class BuildingWindowBatch {
 
   addBuilding(p: WindowPlacement) {
     if (p.height < 4 || p.area < 40) return
-    const w = p.maxX - p.minX
-    const d = p.maxZ - p.minZ
-    if (w < 3 || d < 3) return
+    const pts = openRing(p.footprint)
+    if (pts.length < 3) return
+
+    let cx = 0
+    let cz = 0
+    for (const [x, z] of pts) {
+      cx += x
+      cz += z
+    }
+    cx /= pts.length
+    cz /= pts.length
 
     const floors = Math.min(MAX_FLOORS, Math.max(1, p.levels))
     const floorH = p.height / floors
 
-    // Four sides: +Z, -Z, +X, -X (outward)
-    this.addSide(p.minX, p.maxX, p.maxZ, 0, floors, floorH, 'z+', w)
-    this.addSide(p.minX, p.maxX, p.minZ, Math.PI, floors, floorH, 'z-', w)
-    this.addSide(p.minZ, p.maxZ, p.maxX, -Math.PI / 2, floors, floorH, 'x+', d)
-    this.addSide(p.minZ, p.maxZ, p.minX, Math.PI / 2, floors, floorH, 'x-', d)
-  }
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      const ex = b[0] - a[0]
+      const ez = b[1] - a[1]
+      const len = Math.hypot(ex, ez)
+      if (len < 4.5) continue
 
-  private addSide(
-    alongMin: number,
-    alongMax: number,
-    fixed: number,
-    yaw: number,
-    floors: number,
-    floorH: number,
-    side: 'z+' | 'z-' | 'x+' | 'x-',
-    sideLen: number,
-  ) {
-    const cols = Math.min(MAX_COLS, Math.max(1, Math.floor(sideLen / SPACING)))
-    const span = alongMax - alongMin
-    const margin = Math.min(1.2, span * 0.08)
-    const usable = span - margin * 2
-    if (usable < 1.2) return
+      // Outward normal (left of edge); flip so it points away from centroid
+      let nx = -ez / len
+      let nz = ex / len
+      const mx = (a[0] + b[0]) / 2
+      const mz = (a[1] + b[1]) / 2
+      if (nx * (cx - mx) + nz * (cz - mz) > 0) {
+        nx = -nx
+        nz = -nz
+      }
 
-    for (let floor = 0; floor < floors; floor++) {
-      const isGround = floor === 0
-      const winH = isGround ? Math.min(2.4, floorH * 0.62) : Math.min(2.0, floorH * 0.52)
-      const winW = Math.min(1.6, usable / cols - 0.45)
-      if (winW < 0.7) continue
-      const y = floor * floorH + (isGround ? 1.15 + winH / 2 : floorH * 0.55)
+      // Skip edges that face almost entirely inward courtyards of huge footprints
+      // (still decorate street/plaza edges)
+      const cols = Math.min(MAX_COLS, Math.max(1, Math.floor(len / SPACING)))
+      const margin = Math.min(1.4, len * 0.1)
+      const usable = len - margin * 2
+      if (usable < 1.4) continue
 
-      for (let c = 0; c < cols; c++) {
-        const t = (c + 0.5) / cols
-        const along = alongMin + margin + t * usable
-        let x = 0
-        let z = 0
-        const inset = 0.08
-        if (side === 'z+' || side === 'z-') {
-          x = along
-          z = fixed + (side === 'z+' ? inset : -inset)
-        } else {
-          z = along
-          x = fixed + (side === 'x+' ? inset : -inset)
+      const ux = ex / len
+      const uz = ez / len
+      // Face outward; position is inset inward from the wall
+      const yaw = Math.atan2(nx, nz)
+
+      for (let floor = 0; floor < floors; floor++) {
+        const isGround = floor === 0
+        const winH = isGround
+          ? Math.min(2.2, floorH * 0.58)
+          : Math.min(1.85, floorH * 0.48)
+        const winW = Math.min(1.45, usable / cols - 0.55)
+        if (winW < 0.65) continue
+        const y = floor * floorH + (isGround ? 1.1 + winH / 2 : floorH * 0.52)
+
+        for (let c = 0; c < cols; c++) {
+          const t = margin + ((c + 0.5) / cols) * usable
+          const x = a[0] + ux * t - nx * INSET
+          const z = a[1] + uz * t - nz * INSET
+
+          this.push(this.frames, x, y, z, yaw, winW + 0.22, winH + 0.22, 0.1)
+          this.push(this.glasses, x, y, z, yaw, winW, winH, 0.06)
         }
-
-        // Frame (slightly larger)
-        this.push(this.frames, x, y, z, yaw, winW + 0.28, winH + 0.28, 0.14)
-        // Glass
-        this.push(this.glasses, x, y, z, yaw, winW, winH, 0.08)
       }
     }
   }
@@ -139,6 +146,17 @@ export class BuildingWindowBatch {
 
     parent.add(frameMesh, glassMesh)
   }
+}
+
+function openRing(ring: Vec2[]): Vec2[] {
+  if (ring.length < 2) return []
+  const pts = ring.slice(0, -1)
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  if (Math.hypot(first[0] - last[0], first[1] - last[1]) > 0.5) {
+    return ring.slice()
+  }
+  return pts
 }
 
 export function footprintArea(
